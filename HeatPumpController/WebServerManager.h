@@ -127,8 +127,8 @@ private:
                 else if (mode == "auto")  controlEngine.setManualMode(false);
                 else if (mode == "reset") controlEngine.clearLockout();
             }
-            if (doc["relay"].is<bool>()) {
-                controlEngine.manualRelay(doc["relay"].as<bool>());
+            if (doc["heater"].is<bool>()) {
+                controlEngine.setHeaterManual(doc["heater"].as<bool>());
             }
             logger.info("[Web] Control command received.");
             _server->send(200, "application/json", "{\"status\":\"ok\"}");
@@ -234,8 +234,11 @@ private:
         doc["uptime"]   = hpSystem.health.uptime;
         doc["device_id"]= hpSystem.device.deviceId;
         doc["firmware"] = hpSystem.device.firmwareVersion;
-        doc["relay"]    = (hpSystem.relay == RelayState::ON) ? "ON" : "OFF";
-        doc["setpoint"] = configManager.config.tempSetpoint;
+        doc["relay_hp"]       = (hpSystem.relay       == RelayState::ON) ? "ON" : "OFF";
+        doc["relay_heater"]   = (hpSystem.heaterRelay  == RelayState::ON) ? "ON" : "OFF";
+        doc["heater_manual"]  = hpSystem.heaterManualOn;
+        doc["setpoint"]       = configManager.config.tempSetpoint;
+        doc["hysteresis"]     = configManager.config.tempHysteresis;
         doc["timestamp"]= millis();
 
         JsonDocument alarmsDoc;
