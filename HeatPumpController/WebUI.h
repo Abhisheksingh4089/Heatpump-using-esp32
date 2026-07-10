@@ -384,14 +384,18 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
       <span id="ctrl-setpoint" style="font-weight:600;">—</span>
     </div>
     <div class="status-row">
-      <span class="status-label">Relay Output</span>
-      <span id="ctrl-relay" style="font-weight:600;">—</span>
+      <span class="status-label">HP Relay</span>
+      <span id="ctrl-relay-hp" style="font-weight:600;">—</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Heater Relay</span>
+      <span id="ctrl-relay-heater" style="font-weight:600;">—</span>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary"    onclick="sendControl({mode:'auto'})">AUTO</button>
       <button class="btn btn-secondary"  onclick="sendControl({mode:'manual'})">MANUAL</button>
-      <button class="btn btn-warning"    onclick="sendControl({relay:true})">Relay ON</button>
-      <button class="btn btn-secondary"  onclick="sendControl({relay:false})">Relay OFF</button>
+      <button class="btn btn-warning"    onclick="sendControl({heater:true})">Heater ON</button>
+      <button class="btn btn-secondary"  onclick="sendControl({heater:false})">Heater OFF</button>
       <button class="btn btn-danger"     onclick="sendControl({mode:'reset'})">Reset Lockout</button>
     </div>
   </div>
@@ -661,11 +665,18 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
       dotHtml(tempOk) + (tempOk ? `${temps.filter(t=>t.online).length} sensor(s)` : 'Offline');
     renderTempCards(temps);
 
-    // Relay
-    const relayOn = d.relay === 'ON';
+    // Relay HP
+    const hpOn = d.relay_hp === 'ON';
     document.getElementById('st-relay').innerHTML =
-      `<span class="dot ${relayOn ? 'dot-green' : 'dot-grey'}"></span>${d.relay ?? '—'}`;
-    document.getElementById('ctrl-relay').textContent = d.relay ?? '—';
+      `<span class="dot ${hpOn ? 'dot-green' : 'dot-grey'}"></span>HP: ${d.relay_hp ?? '—'}`;
+    document.getElementById('ctrl-relay-hp').innerHTML =
+      `<span style="color:${hpOn ? 'var(--green)' : 'var(--text-muted)'}">${d.relay_hp ?? '—'}</span>`;
+
+    // Relay Heater
+    const htOn = d.relay_heater === 'ON';
+    document.getElementById('ctrl-relay-heater').innerHTML =
+      `<span style="color:${htOn ? 'var(--yellow)' : 'var(--text-muted)'}">` +
+      `${d.relay_heater ?? '—'}${d.heater_manual ? ' (Manual)' : ''}</span>`;
 
     // Mode (derived from state)
     const modeEl = document.getElementById('ctrl-mode');
