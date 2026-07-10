@@ -1,0 +1,189 @@
+{
+  "_comment":  "ULTRASONIC SENSOR TEST PAYLOAD — AJ-SR04M (Water Tank Level)",
+  "_note":     "POST to http://iotsystems.co.in/iot_api/telemetry.php — Content-Type: application/json",
+  "_curl":     "curl -X POST http://iotsystems.co.in/iot_api/telemetry.php -H \"Content-Type: application/json\" -d @ultrasonic_test_payload.json",
+  "_sensor":   "AJ-SR04M Waterproof Ultrasonic | TRIG→GPIO18 | ECHO→GPIO2",
+  "_formula":  "waterLevelPercent = (emptyDistCm - currentDistCm) / (emptyDistCm - fullDistCm) × 100",
+  "_sampling": "7 samples → sort → drop min/max → average middle → exponential filter (α=0.6)",
+
+  "schemaVersion": "1.0",
+  "deviceId":      "HP-AABBCC",
+  "timestamp":     "2026-07-10T13:45:00Z",
+
+  "system": {
+    "heatPumpRunning": true,
+    "heaterOn":        false,
+    "operatingMode":   "AUTO_MODE",
+    "relayOn":         true,
+    "deviceState":     "AUTO_MODE",
+    "phaseType":       3,
+    "firmwareVersion": "1.0.0",
+    "uptimeSeconds":   52200
+  },
+
+  "temperature": {
+    "targetTemperature":  40.0,
+    "inletTemperature":   30.2,
+    "outletTemperature":  37.1,
+    "ambientTemperature": 33.0
+  },
+
+  "power": {
+    "phase1": {
+      "online":       true,
+      "voltageVolts": 402.0,
+      "currentAmps":  8.2,
+      "powerWatts":   3310.0,
+      "energyKwh":    82.3,
+      "frequencyHz":  50.0,
+      "powerFactor":  0.97
+    },
+    "phase2": {
+      "online":       true,
+      "voltageVolts": 401.0,
+      "currentAmps":  8.1,
+      "powerWatts":   3280.0,
+      "energyKwh":    82.0,
+      "frequencyHz":  50.0,
+      "powerFactor":  0.96
+    },
+    "phase3": {
+      "online":       true,
+      "voltageVolts": 403.0,
+      "currentAmps":  8.3,
+      "powerWatts":   3350.0,
+      "energyKwh":    82.5,
+      "frequencyHz":  50.0,
+      "powerFactor":  0.98
+    }
+  },
+
+  "summary": {
+    "totalPowerWatts":       9940.0,
+    "totalEnergyKwh":        246.8,
+    "averageVoltageVolts":   402.0,
+    "averageCurrentAmps":    8.20,
+    "averagePowerFactor":    0.970,
+    "phaseImbalancePercent": 1.2
+  },
+
+  "waterTank": {
+    "_note_calibration": "emptyDistanceCm=90.0 | fullDistanceCm=8.0 | shutoffPercent=10 | lowAlarmPercent=25",
+
+    "sensorOnline":        true,
+    "sensorDistanceCm":    35.5,
+    "waterHeightCm":       54.5,
+    "waterLevelPercent":   66.5,
+    "waterLevelState":     "NORMAL",
+    "shutoffActive":       false,
+
+    "calibration": {
+      "emptyDistanceCm": 90.0,
+      "fullDistanceCm":   8.0
+    },
+
+    "thresholds": {
+      "shutoffPercent":  10.0,
+      "lowAlarmPercent": 25.0
+    }
+  },
+
+  "compressor": {
+    "compressorRunning": true,
+    "totalRuntimeHours": 130.0
+  },
+
+  "safety": {
+    "highPressureOk":    true,
+    "lowPressureOk":     true,
+    "phaseLossDetected": false,
+    "waterFlowOk":       true,
+    "waterLevelSafe":    true
+  },
+
+  "alarms": {
+    "lowWaterAlarm":    false,
+    "highPressureTrip": false,
+    "lowPressureTrip":  false,
+    "waterFlowFailure": false,
+    "phaseFailure":     false,
+    "overvoltage":      false,
+    "undervoltage":     false,
+    "overcurrent":      false,
+    "highTemperature":  false,
+    "lowTemperature":   false
+  },
+
+  "network": {
+    "wifiSignalStrength": -59,
+    "ipAddress":          "192.168.1.105",
+    "timeSynced":         true
+  },
+
+  "_scenarios": {
+    "_comment": "Copy-paste the waterTank block below to test different states",
+
+    "scenario_FULL": {
+      "sensorOnline":      true,
+      "sensorDistanceCm":  8.0,
+      "waterHeightCm":     82.0,
+      "waterLevelPercent": 100.0,
+      "waterLevelState":   "FULL",
+      "shutoffActive":     false
+    },
+
+    "scenario_HIGH": {
+      "sensorOnline":      true,
+      "sensorDistanceCm":  24.4,
+      "waterHeightCm":     65.6,
+      "waterLevelPercent": 80.0,
+      "waterLevelState":   "HIGH",
+      "shutoffActive":     false
+    },
+
+    "scenario_NORMAL": {
+      "sensorOnline":      true,
+      "sensorDistanceCm":  35.5,
+      "waterHeightCm":     54.5,
+      "waterLevelPercent": 66.5,
+      "waterLevelState":   "NORMAL",
+      "shutoffActive":     false
+    },
+
+    "scenario_LOW": {
+      "sensorOnline":      true,
+      "sensorDistanceCm":  67.0,
+      "waterHeightCm":     23.0,
+      "waterLevelPercent": 28.0,
+      "waterLevelState":   "LOW",
+      "shutoffActive":     false
+    },
+
+    "scenario_CRITICAL": {
+      "sensorOnline":      true,
+      "sensorDistanceCm":  80.5,
+      "waterHeightCm":     9.5,
+      "waterLevelPercent": 11.6,
+      "waterLevelState":   "CRITICAL",
+      "shutoffActive":     true
+    },
+
+    "scenario_EMPTY": {
+      "sensorOnline":      true,
+      "sensorDistanceCm":  90.0,
+      "waterHeightCm":     0.0,
+      "waterLevelPercent": 0.0,
+      "waterLevelState":   "EMPTY",
+      "shutoffActive":     true
+    },
+
+    "scenario_SENSOR_ERROR": {
+      "sensorOnline":      false,
+      "sensorDistanceCm":  -2.0,
+      "waterHeightCm":     0.0,
+      "waterLevelPercent": 0.0,
+      "waterLevelState":   "SENSOR_ERROR",
+      "shutoffActive":     true
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "_comment": "TEMPORARY TEST FILE — POST to http://iotsystems.co.in/iot_api/telemetry.php",
+  "_note": "Use curl, Postman, or any REST client. Content-Type: application/json",
+  "_curl": "curl -X POST http://iotsystems.co.in/iot_api/telemetry.php -H \"Content-Type: application/json\" -d @test_payload.json",
+
+  "schemaVersion": "1.0",
+  "deviceId": "HP-AABBCC",
+  "timestamp": "2026-07-08T14:00:00Z",
+
+  "system": {
+    "heatPumpRunning":  true,
+    "heaterOn":         true,
+    "operatingMode":    "HEATING",
+    "relayOn":          true,
+    "deviceState":      "AUTO_MODE",
+    "phaseType":        3,
+    "firmwareVersion":  "1.0.0",
+    "uptimeSeconds":    45360
+  },
+
+  "temperature": {
+    "targetTemperature":   40.0,
+    "inletTemperature":    29.6,
+    "outletTemperature":   36.0,
+    "ambientTemperature":  32.4
+  },
+
+  "power": {
+    "phase1": {
+      "online":        true,
+      "voltageVolts":  402.0,
+      "currentAmps":   8.2,
+      "powerWatts":    3310.0,
+      "energyKwh":     82.3,
+      "frequencyHz":   50.0,
+      "powerFactor":   0.97
+    },
+    "phase2": {
+      "online":        true,
+      "voltageVolts":  401.0,
+      "currentAmps":   8.1,
+      "powerWatts":    3280.0,
+      "energyKwh":     82.0,
+      "frequencyHz":   50.0,
+      "powerFactor":   0.96
+    },
+    "phase3": {
+      "online":        true,
+      "voltageVolts":  403.0,
+      "currentAmps":   8.3,
+      "powerWatts":    3350.0,
+      "energyKwh":     82.5,
+      "frequencyHz":   50.0,
+      "powerFactor":   0.98
+    }
+  },
+
+  "summary": {
+    "totalPowerWatts":       9940.0,
+    "totalEnergyKwh":        246.800,
+    "averageVoltageVolts":   402.0,
+    "averageCurrentAmps":    8.20,
+    "averagePowerFactor":    0.970,
+    "phaseImbalancePercent": 1.2
+  },
+
+  "waterTank": {
+    "sensorDistanceCm":     15.0,
+    "waterLevelPercent":    62.5,
+    "waterLevelState":      "NORMAL",
+    "flowRateLitersPerMin": null
+  },
+
+  "compressor": {
+    "compressorRunning":  true,
+    "totalRuntimeHours":  126.0
+  },
+
+  "safety": {
+    "highPressureOk":    true,
+    "lowPressureOk":     true,
+    "phaseLossDetected": false,
+    "waterFlowOk":       true,
+    "waterLevelSafe":    true
+  },
+
+  "alarms": {
+    "lowWaterAlarm":    false,
+    "highPressureTrip": false,
+    "lowPressureTrip":  false,
+    "waterFlowFailure": false,
+    "phaseFailure":     false,
+    "overvoltage":      false,
+    "undervoltage":     false,
+    "overcurrent":      false,
+    "highTemperature":  false,
+    "lowTemperature":   false
+  },
+
+  "network": {
+    "wifiSignalStrength": -62,
+    "ipAddress":          "192.168.1.105",
+    "timeSynced":         true
+  }
+}

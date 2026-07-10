@@ -1,0 +1,100 @@
+{
+  "_comment": "Heat Pump Telemetry Payload — ESP32 → Cloud API (HTTP POST)",
+  "_note": "All calculations are done on the ESP32. Backend stores and displays received values only.",
+
+  "schemaVersion": "1.0",
+  "deviceId": "HP-AABBCC",
+  "timestamp": "2026-06-30T16:30:00Z",
+
+  "system": {
+    "heatPumpRunning":  true,
+    "operatingMode":    "HEATING",
+    "relayOn":          true,
+    "deviceState":      "AUTO_MODE",
+    "phaseType":        3,
+    "firmwareVersion":  "1.0.0",
+    "uptimeSeconds":    45360
+  },
+
+  "temperature": {
+    "targetTemperature":   40.0,
+    "inletTemperature":    29.6,
+    "outletTemperature":   36.0,
+    "ambientTemperature":  32.4
+  },
+
+  "power": {
+    "phase1": {
+      "voltageVolts":    402,
+      "currentAmps":     8.2,
+      "powerWatts":      3310,
+      "energyKwh":       82.3,
+      "frequencyHz":     50,
+      "powerFactor":     0.97
+    },
+    "phase2": {
+      "voltageVolts":    401,
+      "currentAmps":     8.1,
+      "powerWatts":      3280,
+      "energyKwh":       82.0,
+      "frequencyHz":     50,
+      "powerFactor":     0.96
+    },
+    "phase3": {
+      "voltageVolts":    403,
+      "currentAmps":     8.3,
+      "powerWatts":      3350,
+      "energyKwh":       82.5,
+      "frequencyHz":     50,
+      "powerFactor":     0.98
+    }
+  },
+
+  "summary": {
+    "totalPowerWatts":       9940,
+    "totalEnergyKwh":        246.8,
+    "averageVoltageVolts":   402,
+    "averageCurrentAmps":    8.2,
+    "averagePowerFactor":    0.97,
+    "phaseImbalancePercent": 1.2
+  },
+
+  "waterTank": {
+    "sensorDistanceCm":    18,
+    "waterLevelPercent":   82,
+    "waterLevelState":     "FULL",
+    "flowRateLitersPerMin": 28.5
+  },
+
+  "compressor": {
+    "compressorRunning":  true,
+    "totalRuntimeHours":  126
+  },
+
+  "safety": {
+    "highPressureOk":    true,
+    "lowPressureOk":     true,
+    "phaseLossDetected": false,
+    "waterFlowOk":       true,
+    "waterLevelSafe":    true
+  },
+
+  "alarms": {
+    "lowWaterAlarm":       false,
+    "highPressureTrip":    false,
+    "lowPressureTrip":     false,
+    "waterFlowFailure":    false,
+    "phaseFailure":        false,
+    "overvoltage":         false,
+    "undervoltage":        false,
+    "overcurrent":         false,
+    "highTemperature":     false,
+    "lowTemperature":      false
+  },
+
+  "network": {
+    "wifiSignalStrength":  -62,
+    "ipAddress":           "192.168.1.105",
+    "timeSynced":          true
+  }
+}

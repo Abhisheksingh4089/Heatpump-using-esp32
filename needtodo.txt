@@ -1,0 +1,8 @@
+each person has o manually connect th pzem one by one and then write addrss to it in the code and compile and reupload 
+
+sms conds till now are these 
+SET_WIFI:864219,YourNetworkName,YourPassword
+
+STATUS:864219
+
+RESTART:864219
