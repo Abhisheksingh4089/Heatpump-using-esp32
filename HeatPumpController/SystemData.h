@@ -173,7 +173,9 @@ struct SystemData {
     AlarmData   alarms;
     WiFiStatus  wifi;
     CloudSyncStatus cloud;
-    RelayState  relay = RelayState::OFF;
+    RelayState  relay        = RelayState::OFF;   // Heat Pump compressor relay (GPIO 18)
+    RelayState  heaterRelay  = RelayState::OFF;   // Heater relay (GPIO 19)
+    bool        heaterManualOn = false;            // true = user manually enabled heater
 
     PZEMData      pzem[3];
     TempSensor    temps[8];

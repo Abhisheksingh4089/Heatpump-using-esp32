@@ -48,8 +48,9 @@ struct ConfigProfile {
     float tempLowLimit          = 0.0f;     // °C
 
     // --- Control ---
-    float tempSetpoint          = 40.0f;    // °C
-    uint32_t relayDelayMs       = 5000;     // Anti-short-cycle
+    float tempSetpoint          = 40.0f;    // °C  target temperature
+    float tempHysteresis        = 2.0f;     // °C  HP starts at (setpoint - hyst), stops at setpoint
+    uint32_t relayDelayMs       = 5000;     // Anti-short-cycle delay (ms)
 
     // --- Water Tank (AJ-SR04M) — Two-point calibration ---
     // Step 1: Empty tank fully → note the distance reading → set emptyDistanceCm

@@ -28,9 +28,9 @@
 //    FULL ≥90% | HIGH ≥70% | NORMAL ≥40% | LOW ≥lowAlarm% | CRITICAL ≥shutoff% | EMPTY
 // ============================================================
 
-#define WATER_TRIG_PIN         18
-#define WATER_ECHO_PIN          2   // GPIO2 (has onboard LED — harmless for ECHO input)
-                                    // GPIO36 not exposed on T-Call SM version
+#define WATER_TRIG_PIN         18   // ⚠️  REPURPOSED → RELAY_HP (ControlEngine.h)
+#define WATER_ECHO_PIN          2   // ⚠️  REPURPOSED → freed
+#define ULTRASONIC_DISABLED         // Comment this out when ultrasonic wired back in
 
 // AJ-SR04M timing constants
 // Standard /58 formula: distance(cm) = echo_duration(µs) / 58
@@ -52,10 +52,17 @@ public:
     //  begin() — call once in setup()
     // -----------------------------------------------------------
     void begin() {
+#ifdef ULTRASONIC_DISABLED
+        logger.warning("[Water] Ultrasonic DISABLED — GPIO18/2 repurposed for relays.");
+        hpSystem.water.sensorOnline  = false;
+        hpSystem.water.shutoffActive = false;
+        strlcpy(hpSystem.water.waterLevelState, "DISABLED", sizeof(hpSystem.water.waterLevelState));
+        return;
+#else
         pinMode(WATER_TRIG_PIN, OUTPUT);
-        pinMode(WATER_ECHO_PIN, INPUT);   // required on ESP32 — must be explicit
+        pinMode(WATER_ECHO_PIN, INPUT);
         digitalWrite(WATER_TRIG_PIN, LOW);
-        delay(500);   // let AJ-SR04M stabilise after power-on
+        delay(500);
 
         const ConfigProfile& cfg = configManager.config;
         logger.logf(LogLevel::INFO,
@@ -64,23 +71,23 @@ public:
             cfg.emptyDistanceCm, cfg.fullDistanceCm,
             cfg.waterShutoffPercent, cfg.waterLowAlarmPercent);
 
-        // Discard 3 warmup readings (AJ-SR04M gives garbage on cold start)
         for (uint8_t i = 0; i < 3; i++) { _takeSingleSample(); delay(100); }
 
-        // Prime filter — reject obviously bogus readings (> emptyDist + 50cm)
         float firstRead = _measureMedian();
         float sanityMax = cfg.emptyDistanceCm + 50.0f;
         _filteredDistanceCm = (firstRead > 0 && firstRead < sanityMax)
-                              ? firstRead
-                              : cfg.emptyDistanceCm;
-        logger.logf(LogLevel::INFO, "[Water] Filter primed at %.1f cm",
-                    _filteredDistanceCm);
+                              ? firstRead : cfg.emptyDistanceCm;
+        logger.logf(LogLevel::INFO, "[Water] Filter primed at %.1f cm", _filteredDistanceCm);
+#endif
     }
 
     // -----------------------------------------------------------
     //  update() — called by taskSensors() every 1000 ms
     // -----------------------------------------------------------
     void update() {
+#ifdef ULTRASONIC_DISABLED
+        return;   // pins in use for relays — skip all measurements
+#else
         float raw = _measureMedian();
 
         // Stuck detection: if too many consecutive errors, reset filter
@@ -97,6 +104,7 @@ public:
 
         _applyFilter(raw);
         _processReading(_filteredDistanceCm, raw);
+#endif
     }
 
 private:
