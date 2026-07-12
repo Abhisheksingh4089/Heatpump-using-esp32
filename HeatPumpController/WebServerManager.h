@@ -9,6 +9,7 @@
 #include "Logger.h"
 #include "WebUI.h"
 #include "SimManager.h"
+#include "SettingsPoller.h"
 
 // ============================================================
 //  WEB SERVER MANAGER
@@ -90,6 +91,13 @@ private:
             doc["gsm_ip"]          = simStatus.localIp;
             doc["post_ok"]         = simStatus.postCount;
             doc["post_fail"]       = simStatus.postFails;
+            // ── Remote Settings Poller ────────────────────────
+            doc["settings_poll_ok"]      = settingsPollStatus.lastPollOk;
+            doc["settings_apply_count"]  = settingsPollStatus.applyCount;
+            doc["settings_fail_count"]   = settingsPollStatus.applyFailCount;
+            doc["settings_last_row_id"]  = settingsPollStatus.lastRowId;
+            doc["settings_last_feedback"]= settingsPollStatus.lastFeedback;
+            doc["settings_poll_count"]   = settingsPollStatus.pollCount;
             String body;
             serializeJson(doc, body);
             _server->send(200, "application/json", body);
@@ -123,12 +131,15 @@ private:
             }
             if (doc["mode"].is<const char*>()) {
                 String mode = doc["mode"].as<String>();
-                if (mode == "manual")     controlEngine.setManualMode(true);
-                else if (mode == "auto")  controlEngine.setManualMode(false);
+                if (mode == "manual")     controlEngine.setManualMode(true,  "WebDash");
+                else if (mode == "auto")  controlEngine.setManualMode(false, "WebDash");
                 else if (mode == "reset") controlEngine.clearLockout();
             }
             if (doc["heater"].is<bool>()) {
-                controlEngine.setHeaterManual(doc["heater"].as<bool>());
+                controlEngine.setHeaterManual(doc["heater"].as<bool>(), "WebDash");
+            }
+            if (doc["hp_manual"].is<bool>()) {
+                controlEngine.setHPManual(doc["hp_manual"].as<bool>(), "WebDash");
             }
             logger.info("[Web] Control command received.");
             _server->send(200, "application/json", "{\"status\":\"ok\"}");
@@ -151,7 +162,10 @@ private:
             if (doc["current_max"].is<float>())    c.currentMax    = doc["current_max"];
             if (doc["temp_high"].is<float>())      c.tempHighLimit = doc["temp_high"];
             if (doc["temp_low"].is<float>())       c.tempLowLimit  = doc["temp_low"];
-            if (doc["temp_setpoint"].is<float>())  c.tempSetpoint  = doc["temp_setpoint"];
+            if (doc["temp_setpoint"].is<float>())    c.tempSetpoint    = doc["temp_setpoint"];
+            if (doc["temp_hysteresis"].is<float>())  c.tempHysteresis  = doc["temp_hysteresis"];
+            if (doc["heater_setpoint"].is<float>())  c.heaterSetpoint  = doc["heater_setpoint"];
+            if (doc["control_sensor_idx"].is<int>()) c.controlSensorIdx = (uint8_t)constrain((int)doc["control_sensor_idx"], 0, 7);
             if (doc["api_url"].is<const char*>())
                 strlcpy(c.apiUrl, doc["api_url"], sizeof(c.apiUrl));
             // Water tank parameters
@@ -176,18 +190,26 @@ private:
             }
             if (doc["ssid"].is<const char*>()) {
                 strlcpy(configManager.config.wifiSsid, doc["ssid"], sizeof(configManager.config.wifiSsid));
+                // Trim trailing/leading spaces — forms often add them
+                String s = String(configManager.config.wifiSsid); s.trim();
+                strlcpy(configManager.config.wifiSsid, s.c_str(), sizeof(configManager.config.wifiSsid));
             }
             if (doc["pass"].is<const char*>()) {
                 strlcpy(configManager.config.wifiPass, doc["pass"], sizeof(configManager.config.wifiPass));
+                String p = String(configManager.config.wifiPass); p.trim();
+                strlcpy(configManager.config.wifiPass, p.c_str(), sizeof(configManager.config.wifiPass));
             }
-            configManager.save();
-            logger.info("[Web] WiFi credentials saved! Attempting connection...");
-            
-            // Disconnect and connect in the background
-            WiFi.disconnect();
-            WiFi.begin(configManager.config.wifiSsid, configManager.config.wifiPass);
-            
+            // saveWifiOnly() writes dedicated NVS string keys that survive
+            // future struct-size changes — password will never be lost again.
+            configManager.saveWifiOnly();
+            logger.info("[Web] WiFi credentials saved to NVS. Connecting...");
+
+            // Give the HTTP response time to send before WiFi reconnects
             _server->send(200, "application/json", "{\"status\":\"saved\"}");
+            delay(100);
+
+            WiFi.disconnect(false);   // drop current connection, keep settings
+            WiFi.begin(configManager.config.wifiSsid, configManager.config.wifiPass);
         });
 
         // ---- POST /api/calibrate/empty  (tank is empty right now) ----
@@ -237,8 +259,12 @@ private:
         doc["relay_hp"]       = (hpSystem.relay       == RelayState::ON) ? "ON" : "OFF";
         doc["relay_heater"]   = (hpSystem.heaterRelay  == RelayState::ON) ? "ON" : "OFF";
         doc["heater_manual"]  = hpSystem.heaterManualOn;
-        doc["setpoint"]       = configManager.config.tempSetpoint;
-        doc["hysteresis"]     = configManager.config.tempHysteresis;
+        doc["hp_manual"]      = hpSystem.hpManualOn;
+        doc["setpoint"]            = configManager.config.tempSetpoint;
+        doc["hysteresis"]           = configManager.config.tempHysteresis;
+        doc["heater_setpoint"]      = configManager.config.heaterSetpoint;
+        doc["control_sensor_idx"]   = configManager.config.controlSensorIdx;
+        doc["temp_count"]           = hpSystem.tempCount;
         doc["timestamp"]= millis();
 
         JsonDocument alarmsDoc;
@@ -297,6 +323,16 @@ private:
         gsm["ip"]         = simStatus.localIp;
         gsm["post_ok"]    = simStatus.postCount;
         gsm["post_fail"]  = simStatus.postFails;
+
+        // ── Remote Settings Poller status ─────────────────────
+        JsonObject sp           = doc["settings_poll"].to<JsonObject>();
+        sp["poll_ok"]           = settingsPollStatus.lastPollOk;
+        sp["poll_count"]        = settingsPollStatus.pollCount;
+        sp["apply_count"]       = settingsPollStatus.applyCount;
+        sp["fail_count"]        = settingsPollStatus.applyFailCount;
+        sp["last_row_id"]       = settingsPollStatus.lastRowId;
+        sp["last_feedback"]     = settingsPollStatus.lastFeedback;
+        sp["last_apply_ms"]     = settingsPollStatus.lastApplyMs;
 
         String out;
         serializeJson(doc, out);

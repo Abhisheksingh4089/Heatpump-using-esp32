@@ -46,6 +46,7 @@
 #include "ControlEngine.h"
 #include "WebServerManager.h"
 #include "WaterManager.h"
+#include "SettingsPoller.h"
 
 #include <esp_task_wdt.h>
 
@@ -68,6 +69,7 @@ AlarmManager       alarmManager;
 ControlEngine      controlEngine;
 WebServerManager   webServer;
 WaterManager       waterManager;
+SettingsPoller     settingsPoller;
 
 // ============================================================
 //  WATCHDOG TIMEOUT
@@ -110,6 +112,10 @@ void taskSimSms() {
 
 void taskCloud() {
     cloudManager.send();  // WiFi first, GPRS fallback
+}
+
+void taskSettingsPoll() {
+    settingsPoller.poll();  // Fetch & apply remote settings from server
 }
 
 void taskHealth() {
@@ -189,6 +195,10 @@ void setup() {
     hpSystem.state = DeviceState::CONNECTING_CELLULAR;
     simManager.begin();
 
+    // Force temp sensor re-scan after SIM800L boot — the modem power-on
+    // sequence disturbs the 3.3V rail which can prevent DS18B20 detection.
+    tempManager.forceRescan();
+
     // 9. Web Server + REST API
     webServer.begin();
 
@@ -203,6 +213,7 @@ void setup() {
     scheduler.add("Sim",       30000,                                 taskSim);
     scheduler.add("SimSMS",    10000,                                 taskSimSms);
     scheduler.add("Cloud",     configManager.config.cloudIntervalMs,  taskCloud);
+    scheduler.add("Settings",  5000,                                  taskSettingsPoll);
 
     // 11. READY
     hpSystem.state = DeviceState::READY;

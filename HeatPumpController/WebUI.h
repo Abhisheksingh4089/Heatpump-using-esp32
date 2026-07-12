@@ -391,11 +391,67 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
       <span class="status-label">Heater Relay</span>
       <span id="ctrl-relay-heater" style="font-weight:600;">—</span>
     </div>
+
+    <hr/>
+    <div class="card-title" style="margin-top:8px;">Heat Pump</div>
     <div class="btn-row">
+      <button class="btn btn-warning"   onclick="sendControl({hp_manual:true})">HP ON</button>
+      <button class="btn btn-secondary" onclick="sendControl({hp_manual:false})">HP OFF</button>
+    </div>
+
+    <div class="card-title" style="margin-top:14px;">Heater</div>
+    <div class="btn-row">
+      <button class="btn btn-warning"   onclick="sendControl({heater:true})">Heater ON</button>
+      <button class="btn btn-secondary" onclick="sendControl({heater:false})">Heater OFF</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px;align-items:flex-end;">
+      <div>
+        <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px;">Heater Stop Temp (°C)</div>
+        <input type="number" id="inp-heater-setpoint" min="20" max="90" step="0.5"
+          style="width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:0.9rem;"/>
+      </div>
+      <button class="btn btn-primary" onclick="saveHeaterSetpoint()" style="white-space:nowrap;">Save</button>
+    </div>
+    <div id="heater-setpoint-msg" style="font-size:0.78rem;margin-top:6px;text-align:center;min-height:16px;color:var(--accent);"></div>
+
+    <hr/>
+    <div class="card-title" style="margin-top:8px;">Control Sensor &amp; Setpoints</div>
+    <div style="margin-bottom:10px;">
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px;">Sensor used for HP &amp; Heater thermostat</div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;">
+        <select id="sel-ctrl-sensor"
+          style="width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:0.9rem;">
+          <option value="0">Sensor 0 (default)</option>
+          <option value="1">Sensor 1</option>
+          <option value="2">Sensor 2</option>
+        </select>
+        <button class="btn btn-primary" onclick="saveCtrlSensor()" style="white-space:nowrap;">Save</button>
+      </div>
+      <div id="ctrl-sensor-msg" style="font-size:0.78rem;margin-top:6px;text-align:center;min-height:16px;color:var(--accent);"></div>
+    </div>
+    <div class="card-title" style="margin-top:8px;">Heat Pump Setpoint &amp; Hysteresis</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+      <div>
+        <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px;">Stop Temp (°C)</div>
+        <input type="number" id="inp-setpoint" min="20" max="90" step="0.5"
+          style="width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:0.9rem;"/>
+      </div>
+      <div>
+        <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:4px;">Hysteresis (°C)</div>
+        <input type="number" id="inp-hysteresis" min="0.5" max="10" step="0.5"
+          style="width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:0.9rem;"/>
+      </div>
+    </div>
+    <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:8px;">
+      HP starts at <b id="lbl-start-temp">—</b> °C &nbsp;·&nbsp; HP stops at <b id="lbl-stop-temp">—</b> °C
+    </div>
+    <button class="btn btn-primary" style="width:100%;" onclick="saveSetpoint()">Save Setpoint</button>
+    <div id="setpoint-msg" style="font-size:0.78rem;margin-top:8px;text-align:center;min-height:16px;color:var(--accent);"></div>
+
+    <hr/>
+    <div class="btn-row" style="margin-top:4px;">
       <button class="btn btn-primary"    onclick="sendControl({mode:'auto'})">AUTO</button>
       <button class="btn btn-secondary"  onclick="sendControl({mode:'manual'})">MANUAL</button>
-      <button class="btn btn-warning"    onclick="sendControl({heater:true})">Heater ON</button>
-      <button class="btn btn-secondary"  onclick="sendControl({heater:false})">Heater OFF</button>
       <button class="btn btn-danger"     onclick="sendControl({mode:'reset'})">Reset Lockout</button>
     </div>
   </div>
@@ -663,14 +719,14 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
     const tempOk = temps.some(t => t.online);
     document.getElementById('st-temp').innerHTML =
       dotHtml(tempOk) + (tempOk ? `${temps.filter(t=>t.online).length} sensor(s)` : 'Offline');
-    renderTempCards(temps);
+    renderTempCards(temps, d.control_sensor_idx ?? 0);
 
     // Relay HP
     const hpOn = d.relay_hp === 'ON';
     document.getElementById('st-relay').innerHTML =
-      `<span class="dot ${hpOn ? 'dot-green' : 'dot-grey'}"></span>HP: ${d.relay_hp ?? '—'}`;
+      `<span class="dot ${hpOn ? 'dot-green' : 'dot-grey'}"></span>HP: ${d.relay_hp ?? '—'}${d.hp_manual ? ' (Manual)' : ''}`;
     document.getElementById('ctrl-relay-hp').innerHTML =
-      `<span style="color:${hpOn ? 'var(--green)' : 'var(--text-muted)'}">${d.relay_hp ?? '—'}</span>`;
+      `<span style="color:${hpOn ? 'var(--green)' : 'var(--text-muted)'}">${d.relay_hp ?? '—'}${d.hp_manual ? ' (Manual)' : ''}</span>`;
 
     // Relay Heater
     const htOn = d.relay_heater === 'ON';
@@ -683,9 +739,30 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
     modeEl.textContent = d.state ?? '—';
     modeEl.className = 'state-badge state-' + (d.state ?? 'default');
     
-    // Setpoint
+    // Setpoint display — populate input boxes once
     if (d.setpoint !== undefined) {
       document.getElementById('ctrl-setpoint').textContent = d.setpoint + ' °C';
+      const hyst = d.hysteresis ?? 2.0;
+      document.getElementById('lbl-start-temp').textContent = (d.setpoint - hyst).toFixed(1);
+      document.getElementById('lbl-stop-temp').textContent  = d.setpoint.toFixed(1);
+      if (!document.getElementById('inp-setpoint').dataset.populated) {
+        document.getElementById('inp-setpoint').value    = d.setpoint;
+        document.getElementById('inp-hysteresis').value  = hyst;
+        document.getElementById('inp-setpoint').dataset.populated = '1';
+      }
+    }
+    if (d.heater_setpoint !== undefined) {
+      if (!document.getElementById('inp-heater-setpoint').dataset.populated) {
+        document.getElementById('inp-heater-setpoint').value = d.heater_setpoint;
+        document.getElementById('inp-heater-setpoint').dataset.populated = '1';
+      }
+    }
+    if (d.control_sensor_idx !== undefined) {
+      const sel = document.getElementById('sel-ctrl-sensor');
+      if (!sel.dataset.populated) {
+        sel.value = d.control_sensor_idx;
+        sel.dataset.populated = '1';
+      }
     }
 
     // Safety Switches
@@ -705,16 +782,16 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
     renderAlarms(d.alarms ?? []);
   }
 
-  function renderTempCards(temps) {
+  function renderTempCards(temps, ctrlIdx) {
     const container = document.getElementById('temp-container');
     if (!temps.length) {
       container.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">No sensors detected</p>';
       return;
     }
-    container.innerHTML = temps.map(s => `
+    container.innerHTML = temps.map((s, i) => `
       <div class="metric-grid" style="margin-bottom:10px;">
         <div class="metric">
-          <div class="metric-label">${s.name}</div>
+          <div class="metric-label">${s.name}${i === ctrlIdx ? ' <span style="color:var(--yellow);font-size:0.65rem;">★ CONTROL</span>' : ''}</div>
           <div class="metric-value" style="font-size:2rem;">${s.online ? s.value : '—'}</div>
           <div class="metric-unit">°C</div>
           <div class="metric-status ${s.online ? 'online' : 'offline'}">${s.online ? 'ONLINE' : 'OFFLINE'}</div>
@@ -894,6 +971,70 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
     }).then(r => r.json()).then(d => {
       console.log('Control:', d);
     }).catch(e => console.error(e));
+  }
+
+  function saveSetpoint() {
+    const sp   = parseFloat(document.getElementById('inp-setpoint').value);
+    const hyst = parseFloat(document.getElementById('inp-hysteresis').value);
+    const msg  = document.getElementById('setpoint-msg');
+    if (isNaN(sp) || sp < 20 || sp > 90)   { msg.style.color='var(--red)'; msg.textContent='Setpoint must be 20–90°C'; return; }
+    if (isNaN(hyst) || hyst < 0.5 || hyst > 10) { msg.style.color='var(--red)'; msg.textContent='Hysteresis must be 0.5–10°C'; return; }
+    msg.style.color = 'var(--accent)';
+    msg.textContent = 'Saving...';
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ temp_setpoint: sp, temp_hysteresis: hyst })
+    }).then(r => r.json()).then(() => {
+      msg.style.color = 'var(--green)';
+      msg.textContent = `✓ Saved! HP starts at ${(sp - hyst).toFixed(1)}°C, stops at ${sp.toFixed(1)}°C`;
+      document.getElementById('inp-setpoint').dataset.populated = '';  // refresh labels
+      setTimeout(() => msg.textContent = '', 5000);
+    }).catch(() => {
+      msg.style.color = 'var(--red)';
+      msg.textContent = 'Error saving. Try again.';
+    });
+  }
+
+  function saveHeaterSetpoint() {
+    const sp  = parseFloat(document.getElementById('inp-heater-setpoint').value);
+    const msg = document.getElementById('heater-setpoint-msg');
+    if (isNaN(sp) || sp < 20 || sp > 90) { msg.style.color='var(--red)'; msg.textContent='Heater setpoint must be 20–90°C'; return; }
+    msg.style.color = 'var(--accent)';
+    msg.textContent = 'Saving...';
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ heater_setpoint: sp })
+    }).then(r => r.json()).then(() => {
+      msg.style.color = 'var(--green)';
+      msg.textContent = `✓ Heater will stop at ${sp.toFixed(1)}°C`;
+      document.getElementById('inp-heater-setpoint').dataset.populated = '';  // refresh
+      setTimeout(() => msg.textContent = '', 5000);
+    }).catch(() => {
+      msg.style.color = 'var(--red)';
+      msg.textContent = 'Error saving. Try again.';
+    });
+  }
+
+  function saveCtrlSensor() {
+    const idx = parseInt(document.getElementById('sel-ctrl-sensor').value);
+    const msg = document.getElementById('ctrl-sensor-msg');
+    msg.style.color = 'var(--accent)';
+    msg.textContent = 'Saving...';
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ control_sensor_idx: idx })
+    }).then(r => r.json()).then(() => {
+      msg.style.color = 'var(--green)';
+      msg.textContent = `✓ Sensor ${idx} is now the control sensor.`;
+      document.getElementById('sel-ctrl-sensor').dataset.populated = ''; // refresh
+      setTimeout(() => msg.textContent = '', 5000);
+    }).catch(() => {
+      msg.style.color = 'var(--red)';
+      msg.textContent = 'Error saving. Try again.';
+    });
   }
 
   // ─────────────────────────────────────────────

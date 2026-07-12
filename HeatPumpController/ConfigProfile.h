@@ -48,8 +48,11 @@ struct ConfigProfile {
     float tempLowLimit          = 0.0f;     // °C
 
     // --- Control ---
-    float tempSetpoint          = 40.0f;    // °C  target temperature
-    float tempHysteresis        = 2.0f;     // °C  HP starts at (setpoint - hyst), stops at setpoint
+    float    tempSetpoint       = 40.0f;    // °C  Heat Pump stop temperature
+    float    tempHysteresis     = 2.0f;     // °C  HP starts at (setpoint - hyst), stops at setpoint
+    float    heaterSetpoint     = 40.0f;    // °C  Heater stop temperature
+    float    heaterHysteresis   = 2.0f;     // °C  Heater starts at (setpoint - hyst), stops at setpoint
+    uint8_t  controlSensorIdx   = 0;        // Which DS18B20 index drives HP+Heater control
     uint32_t relayDelayMs       = 5000;     // Anti-short-cycle delay (ms)
 
     // --- Water Tank (AJ-SR04M) — Two-point calibration ---
@@ -65,6 +68,13 @@ struct ConfigProfile {
 // ============================================================
 //  CONFIG MANAGER
 //  Saves / loads ConfigProfile from NVS.
+//
+//  WiFi Safety Rule:
+//  wifiSsid + wifiPass are ALSO stored as dedicated NVS string
+//  keys ("wifi_ssid", "wifi_pass") independently of the profile
+//  blob. This means firmware updates that add new struct fields
+//  (causing a blob size mismatch and a reset-to-defaults) will
+//  NEVER erase the saved WiFi password. Credentials always survive.
 // ============================================================
 class ConfigManager {
 public:
@@ -76,9 +86,23 @@ public:
         Serial.println("[Config] Profile loaded from NVS.");
     }
 
+    // Full save — writes the profile blob AND refreshes the WiFi keys.
     void save() {
         _prefs.putBytes("profile", &config, sizeof(ConfigProfile));
+        // Always mirror WiFi to dedicated keys so they survive future
+        // struct size changes caused by adding new ConfigProfile fields.
+        _prefs.putString("wifi_ssid", config.wifiSsid);
+        _prefs.putString("wifi_pass", config.wifiPass);
         Serial.println("[Config] Profile saved to NVS.");
+    }
+
+    // Fast WiFi-only save — skips the full blob write.
+    // Call this from /api/wifi and SET_WIFI SMS handler for speed.
+    void saveWifiOnly() {
+        _prefs.putString("wifi_ssid", config.wifiSsid);
+        _prefs.putString("wifi_pass", config.wifiPass);
+        Serial.printf("[Config] WiFi credentials saved to NVS: SSID='%s'\n",
+                      config.wifiSsid);
     }
 
     void resetDefaults() {
@@ -91,27 +115,46 @@ private:
     Preferences _prefs;
 
     void _load() {
+        bool needResave = false;
+
         size_t len = _prefs.getBytesLength("profile");
         if (len == sizeof(ConfigProfile)) {
             _prefs.getBytes("profile", &config, sizeof(ConfigProfile));
 
             // Detect stale NVS data from old firmware versions.
-            // If the URL is a placeholder or doesn't match expected domain, reset.
             String savedUrl = String(config.apiUrl);
             if (savedUrl.isEmpty() ||
                 savedUrl.indexOf("your-server") >= 0 ||
                 savedUrl.indexOf("example.com") >= 0 ||
                 savedUrl.length() < 10) {
-                Serial.println("[Config] Stale URL detected in NVS. Resetting to defaults.");
+                Serial.println("[Config] Stale URL in NVS — resetting to defaults.");
                 config = ConfigProfile{};
-                save();
+                needResave = true;
             }
         } else {
-            // First boot or struct size changed — use defaults & save
-            Serial.println("[Config] No valid profile found. Using defaults.");
+            // First boot OR struct size changed after a firmware update.
+            // Reset to defaults — WiFi recovery below will restore credentials.
+            Serial.println("[Config] Profile size mismatch (new firmware?) — resetting. WiFi will be restored.");
             config = ConfigProfile{};
-            save();
+            needResave = true;
         }
+
+        // ── WiFi credential recovery (always runs last) ───────────────────────
+        // These dedicated keys are written by every save() / saveWifiOnly() call
+        // and are NEVER erased by struct-size resets. So even after a firmware
+        // update wipes the blob, the password is safe here.
+        String savedSsid = _prefs.getString("wifi_ssid", "");
+        String savedPass = _prefs.getString("wifi_pass", "");
+        if (savedSsid.length() > 0) {
+            strlcpy(config.wifiSsid, savedSsid.c_str(), sizeof(config.wifiSsid));
+            strlcpy(config.wifiPass, savedPass.c_str(), sizeof(config.wifiPass));
+            Serial.printf("[Config] WiFi restored: SSID='%s'\n", config.wifiSsid);
+        } else {
+            Serial.println("[Config] No saved WiFi. Use http://192.168.4.1 or /api/wifi to configure.");
+        }
+
+        // If we reset the blob, re-save now that WiFi is populated correctly.
+        if (needResave) save();
     }
 };
 

@@ -54,8 +54,10 @@ public:
     void begin() {
 #ifdef ULTRASONIC_DISABLED
         logger.warning("[Water] Ultrasonic DISABLED — GPIO18/2 repurposed for relays.");
-        hpSystem.water.sensorOnline  = false;
-        hpSystem.water.shutoffActive = false;
+        hpSystem.water.sensorOnline         = false;
+        hpSystem.water.shutoffActive        = false;
+        hpSystem.alarms.criticalWaterLevel  = false;  // ← MUST clear: no sensor = no shutoff
+        hpSystem.alarms.lowWaterLevel       = false;
         strlcpy(hpSystem.water.waterLevelState, "DISABLED", sizeof(hpSystem.water.waterLevelState));
         return;
 #else

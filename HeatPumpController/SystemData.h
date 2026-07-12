@@ -176,6 +176,7 @@ struct SystemData {
     RelayState  relay        = RelayState::OFF;   // Heat Pump compressor relay (GPIO 18)
     RelayState  heaterRelay  = RelayState::OFF;   // Heater relay (GPIO 19)
     bool        heaterManualOn = false;            // true = user manually enabled heater
+    bool        hpManualOn     = false;            // true = user manually enabled heat pump
 
     PZEMData      pzem[3];
     TempSensor    temps[8];

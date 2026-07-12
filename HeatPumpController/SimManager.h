@@ -186,6 +186,15 @@ public:
     void checkSMS() {
         if (!simStatus.modemOnline || !_modem) return;
         if (_isCheckingSMS) return;
+
+        // Guard: if modem lost Vi registration, skip SMS read.
+        // update() (runs every 30s) handles reconnection — don't trigger
+        // _connectGprs() here or it will hammer the modem every 10s.
+        if (!_modem->isNetworkConnected()) {
+            logger.warning("[SIM] checkSMS: not registered on network — skipping SMS read.");
+            return;
+        }
+
         _isCheckingSMS = true;
 
         // Set text mode
@@ -313,32 +322,31 @@ private:
             logger.logf(LogLevel::INFO, "[SIM] SET_WIFI SSID=[%s] PASS=[%s]",
                         ssid.c_str(), pass.c_str());
 
-            // ── Save new credentials to config FIRST (but not NVS yet) ──
-            // This ensures NetworkManager's reconnect also uses the NEW credentials
-            // during the wait loop — both managers cooperate instead of fighting.
-            char oldSsid[32], oldPass[64];
-            strlcpy(oldSsid, configManager.config.wifiSsid, sizeof(oldSsid));
-            strlcpy(oldPass, configManager.config.wifiPass, sizeof(oldPass));
+            // ── Save credentials to NVS IMMEDIATELY ──────────────────────────
+            // Do this BEFORE attempting connection so credentials are always
+            // persisted even if the WiFi connection times out or fails.
+            // On next reboot the NetworkManager will pick them up automatically.
             strlcpy(configManager.config.wifiSsid, ssid.c_str(),
                     sizeof(configManager.config.wifiSsid));
             strlcpy(configManager.config.wifiPass, pass.c_str(),
                     sizeof(configManager.config.wifiPass));
+            configManager.saveWifiOnly();   // writes "wifi_ssid" + "wifi_pass" NVS keys
+            logger.info("[SIM] WiFi credentials saved to NVS.");
 
-            // ── Start WiFi with new credentials (NO disconnect(true) — that erases RAM) ──
+            // ── Now attempt connection ────────────────────────────────────────
             WiFi.begin(ssid.c_str(), pass.c_str());
 
             unsigned long start = millis();
             bool connected = false;
             extern Scheduler scheduler;
-            while (millis() - start < 25000) {   // 25s timeout
+            while (millis() - start < 25000) {
                 if (WiFi.status() == WL_CONNECTED) { connected = true; break; }
-                scheduler.tick();   // NetworkManager will also try new creds — that's OK
+                scheduler.tick();
                 delay(300);
             }
 
             if (connected) {
-                configManager.save();  // Now persist to NVS
-                logger.info("[SIM] WiFi connected and saved to NVS.");
+                logger.info("[SIM] WiFi connected successfully.");
                 if (phone.length() > 5) {
                     String reply = "WiFi OK! SSID: " + ssid
                                  + " IP: " + WiFi.localIP().toString()
@@ -346,15 +354,11 @@ private:
                     _modem->sendSMS(phone, reply);
                 }
             } else {
-                // Restore old credentials — new ones didn't work
-                strlcpy(configManager.config.wifiSsid, oldSsid,
-                        sizeof(configManager.config.wifiSsid));
-                strlcpy(configManager.config.wifiPass, oldPass,
-                        sizeof(configManager.config.wifiPass));
-                logger.warning("[SIM] WiFi connection failed. Old credentials restored.");
+                // Credentials are ALREADY saved — device will retry on next boot.
+                logger.warning("[SIM] WiFi connection timed out. Credentials saved for next boot.");
                 if (phone.length() > 5)
-                    _modem->sendSMS(phone, "WiFi FAILED: " + ssid
-                                  + ". Check SSID/password. Old WiFi restored.");
+                    _modem->sendSMS(phone, "WiFi SAVED but not connected yet (timeout). "
+                                          "Device will retry on next reboot. SSID: " + ssid);
             }
         }
 

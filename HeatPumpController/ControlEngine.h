@@ -6,226 +6,344 @@
 #include "Logger.h"
 
 // ============================================================
-//  CONTROL ENGINE — Dual NC Relay Logic
+//  CONTROL ENGINE  —  Dual NC Relay (Active-LOW module)
 //
-//  LILYGO T-Call V1.4 — Pin reassignment:
-//    GPIO 18 → RELAY_HP     (Heat Pump compressor)  [was WATER_TRIG]
-//    GPIO 19 → RELAY_HEATER (Heater element)         [was single relay]
-//    GPIO 2  → freed                                  [was WATER_ECHO]
+//  RELAY WIRING (active-LOW module, NC contacts):
+//    GPIO LOW  → coil energized → NC OPEN  → equipment STOPPED
+//    GPIO HIGH → coil released  → NC CLOSED → equipment RUNS
 //
-//  NC RELAY WIRING (Normally Closed / Fail-Safe):
-//    Coil OFF (LOW)  → NC contacts CLOSED → Equipment RUNS
-//    Coil ON  (HIGH) → NC contacts OPEN   → Equipment STOPS
-//    No ESP32 power  → Coil dies → NC closes → manual operation works ✅
+//  ── HP CONTROL MODES ──────────────────────────────────────
+//  hpManualOn=true,  _hpForceOff=false  → MANUAL ON  (force relay ON)
+//  hpManualOn=false, _hpForceOff=true   → MANUAL OFF (force relay OFF)
+//  hpManualOn=false, _hpForceOff=false  → AUTO       (thermostat drives HP)
 //
-//  HEAT PUMP LOGIC (hysteresis thermostat + safety):
-//    startTemp = setpoint - hysteresis
-//    START  when: currentTemp < startTemp AND HP_OK AND LP_OK AND no faults
-//    STOP   when: currentTemp >= setpoint OR HP fault OR LP fault OR critical alarm
+//  AUTO HP logic:
+//    START when: temp < (setpoint - hysteresis)
+//    STOP  when: temp >= setpoint
 //
-//  HEATER LOGIC (manual start, temp-guarded auto stop):
-//    START  when: heaterManualOn == true
-//    STOP   when: heaterManualOn == false OR currentTemp >= setpoint
+//  ── HEATER CONTROL MODES ──────────────────────────────────
+//  heaterManualOn=true,  _heaterForceOff=false → MANUAL ON  (force relay ON, safety stop at setpoint)
+//  heaterManualOn=false, _heaterForceOff=true  → MANUAL OFF (force relay OFF)
+//  heaterManualOn=false, _heaterForceOff=false → AUTO       (thermostat drives Heater)
+//
+//  AUTO Heater logic:
+//    RUNS  when: temp < heaterSetpoint
+//    STOPS when: temp >= heaterSetpoint
+//
+//  ── BUTTON ACTIONS ────────────────────────────────────────
+//  HP ON      → hpManualOn=true,  _hpForceOff=false
+//  HP OFF     → hpManualOn=false, _hpForceOff=true  (holds OFF)
+//  Heater ON  → heaterManualOn=true,  _heaterForceOff=false
+//  Heater OFF → heaterManualOn=false, _heaterForceOff=true (holds OFF)
+//  AUTO btn   → clears ALL manual flags → both devices return to AUTO thermostat
 // ============================================================
 
-#define RELAY_HP_PIN      18   // Heat Pump compressor — NC relay (was WATER_TRIG)
-#define RELAY_HEATER_PIN  19   // Heater element       — NC relay (was single relay pin)
+#define RELAY_HP_PIN      18
+#define RELAY_HEATER_PIN  19
 
-// NC relay coil helpers — makes intent clear in code
-#define COIL_ON   HIGH   // coil energized  → contacts OPEN  → equipment STOPPED
-#define COIL_OFF  LOW    // coil released   → contacts CLOSED → equipment RUNS
+#define COIL_ON   LOW    // GPIO LOW  → coil energized → NC OPEN  → STOPPED
+#define COIL_OFF  HIGH   // GPIO HIGH → coil released  → NC CLOSED → RUNS
 
 class ControlEngine {
 public:
 
-    // ── begin() — call once in setup() ───────────────────────
     void begin() {
         pinMode(RELAY_HP_PIN,     OUTPUT);
         pinMode(RELAY_HEATER_PIN, OUTPUT);
-
-        // NC relay: energize coil at startup → contacts OPEN → both OFF (safe default)
         digitalWrite(RELAY_HP_PIN,     COIL_ON);
         digitalWrite(RELAY_HEATER_PIN, COIL_ON);
 
-        hpSystem.relay         = RelayState::OFF;
-        hpSystem.heaterRelay   = RelayState::OFF;
+        hpSystem.relay          = RelayState::OFF;
+        hpSystem.heaterRelay    = RelayState::OFF;
         hpSystem.heaterManualOn = false;
-        _hpRunning             = false;
-        _lastHpChange          = millis();
+        hpSystem.hpManualOn     = false;
+        _hpRunning              = false;
+        _heaterRunning          = false;
+        _hpForceOff             = false;
+        _heaterForceOff         = false;
+        _lastHpChange           = millis();
 
-        logger.info("[Control] ControlEngine init. HP=STOPPED, Heater=STOPPED (NC safe).");
+        logger.info("[Control] Init OK. HP=OFF Heater=OFF. Both in AUTO thermostat mode.");
     }
 
-    // ── evaluate() — call every cycle (e.g. 1s) ──────────────
+    // ── Called every 1000 ms by Scheduler ────────────────────
     void evaluate() {
+        uint8_t ctrlIdx = min((uint8_t)configManager.config.controlSensorIdx,
+                              (uint8_t)(hpSystem.tempCount > 0 ? hpSystem.tempCount - 1 : 0));
+        bool  tempValid   = (hpSystem.tempCount > 0 && hpSystem.temps[ctrlIdx].online);
+        float currentTemp = tempValid ? hpSystem.temps[ctrlIdx].value : 0.0f;
 
-        // ── State machine guards ──────────────────────────────
-        if (_hasCriticalAlarm()) {
-            _transitionTo(DeviceState::FAULT);
-            _stopHP("Critical alarm");
-            _stopHeater("Critical alarm");
-            return;
-        }
+        float hpSetpoint  = configManager.config.tempSetpoint;
+        float hpHyst      = configManager.config.tempHysteresis;
+        float hpStartTemp = hpSetpoint - hpHyst;   // HP starts below this
+        float heaterSetpt = configManager.config.heaterSetpoint;
 
+        bool hpPressureFault = hpSystem.alarms.highPressure || hpSystem.alarms.lowPressure;
+        bool systemFault     = hpSystem.alarms.overvoltage   || hpSystem.alarms.overcurrent
+                            || hpSystem.alarms.highTemp      || hpSystem.alarms.criticalWaterLevel;
+
+        // ── LOCKOUT ──────────────────────────────────────────
         if (hpSystem.state == DeviceState::LOCKOUT) {
             _stopHP("Lockout");
             _stopHeater("Lockout");
             return;
         }
 
-        if (hpSystem.state == DeviceState::FAULT) {
-            if (!hpSystem.alarms.anyActive()) {
-                logger.info("[Control] Alarms cleared. Returning to MONITORING.");
-                _transitionTo(DeviceState::MONITORING);
-            } else if (millis() - _faultStart > 300000UL) {
-                logger.critical("[Control] Persistent fault → LOCKOUT.");
-                _transitionTo(DeviceState::LOCKOUT);
+        // ── SYSTEM FAULT (stops everything) ─────────────────
+        if (systemFault) {
+            if (hpSystem.state != DeviceState::FAULT) _transition(DeviceState::FAULT);
+            _stopHP("System fault");
+            _stopHeater("System fault");
+            if (millis() - _faultStart > 300000UL) {
+                logger.critical("[Control] Fault >5min → LOCKOUT.");
+                _transition(DeviceState::LOCKOUT);
             }
             return;
         }
 
+        // ── HP PRESSURE FAULT (HP stops, heater continues) ──
+        if (hpPressureFault) {
+            if (hpSystem.state != DeviceState::FAULT) _transition(DeviceState::FAULT);
+            _stopHP("Pressure fault");
+            _driveHeater(tempValid, currentTemp, heaterSetpt);
+            if (millis() - _faultStart > 300000UL) {
+                logger.critical("[Control] HP pressure fault >5min → LOCKOUT.");
+                _transition(DeviceState::LOCKOUT);
+            }
+            return;
+        }
+
+        // ── FAULT CLEARED ────────────────────────────────────
+        if (hpSystem.state == DeviceState::FAULT) {
+            logger.info("[Control] Faults cleared. Resuming AUTO.");
+            _transition(DeviceState::MONITORING);
+        }
+
         if (hpSystem.state == DeviceState::READY)
-            _transitionTo(DeviceState::MONITORING);
+            _transition(DeviceState::MONITORING);
 
-        if (hpSystem.state == DeviceState::MANUAL_MODE) return;
-
-        // ── Get shared values ─────────────────────────────────
-        bool tempValid  = (hpSystem.tempCount > 0 && hpSystem.temps[0].online);
-        float currentTemp = tempValid ? hpSystem.temps[0].value : 0.0f;
-        float setpt     = configManager.config.tempSetpoint;
-        float hyst      = configManager.config.tempHysteresis;   // e.g. 2.0°C
-        float startTemp = setpt - hyst;   // e.g. 40 - 2 = 38°C  → HP starts
-        float stopTemp  = setpt;          // e.g. 40°C            → HP stops
-
-        // ── HEAT PUMP RELAY (GPIO 18, NC) ────────────────────
-        _evaluateHeatPump(tempValid, currentTemp, startTemp, stopTemp);
-
-        // ── HEATER RELAY (GPIO 19, NC) ───────────────────────
-        _evaluateHeater(tempValid, currentTemp, setpt);
+        // ── NORMAL CONTROL ───────────────────────────────────
+        _driveHP(tempValid, currentTemp, hpStartTemp, hpSetpoint);
+        _driveHeater(tempValid, currentTemp, heaterSetpt);
     }
 
-    // ── Public controls — called from WebServer / SimManager ─
+    // ── HP button: ON ─────────────────────────────────────────
+    void setHPManual(bool on, const char* caller = "Web") {
+        hpSystem.hpManualOn = on;
+        if (on) {
+            _hpForceOff = false;
+            logger.logf(LogLevel::INFO, "[Control] HP MANUAL ON [src=%s]", caller);
+        } else {
+            _hpForceOff = true;
+            _stopHP("Manual OFF");
+            logger.logf(LogLevel::INFO, "[Control] HP MANUAL OFF [src=%s]", caller);
+        }
+    }
 
-    void setHeaterManual(bool on) {
+    // ── Heater button: ON / OFF ───────────────────────────────
+    void setHeaterManual(bool on, const char* caller = "Web") {
         hpSystem.heaterManualOn = on;
-        logger.logf(LogLevel::INFO, "[Control] Heater manual → %s", on ? "ON" : "OFF");
+        if (on) {
+            _heaterForceOff = false;
+            logger.logf(LogLevel::INFO, "[Control] Heater MANUAL ON [src=%s]", caller);
+        } else {
+            _heaterForceOff = true;
+            _stopHeater("Manual OFF");
+            logger.logf(LogLevel::INFO, "[Control] Heater MANUAL OFF [src=%s]", caller);
+        }
     }
 
-    void setManualMode(bool manual) {
-        if (manual) _transitionTo(DeviceState::MANUAL_MODE);
-        else {
-            _transitionTo(DeviceState::MONITORING);
-            _stopHP("Manual mode exit");
-            _stopHeater("Manual mode exit");
+    // ── AUTO button: resume thermostat for both devices ───────
+    void setManualMode(bool manual, const char* caller = "Web") {
+        if (manual) {
+            _transition(DeviceState::MANUAL_MODE);
+            logger.logf(LogLevel::INFO, "[Control] MANUAL mode entered [src=%s]", caller);
+        } else {
+            // Clear ALL manual flags → both HP and Heater back to AUTO thermostat
+            hpSystem.hpManualOn     = false;
+            hpSystem.heaterManualOn = false;
+            _hpForceOff             = false;
+            _heaterForceOff         = false;
+            _transition(DeviceState::MONITORING);
+            logger.logf(LogLevel::INFO,
+                "[Control] AUTO mode resumed [src=%s] — thermostat controls HP+Heater", caller);
         }
     }
 
     void clearLockout() {
         if (hpSystem.state == DeviceState::LOCKOUT) {
-            logger.warning("[Control] LOCKOUT cleared by operator.");
             hpSystem.alarms = AlarmData{};
-            _transitionTo(DeviceState::MONITORING);
-            _stopHP("Lockout cleared");
-            _stopHeater("Lockout cleared");
+            _hpRunning      = false;
+            _heaterRunning  = false;
+            _hpForceOff     = false;
+            _heaterForceOff = false;
+            _transition(DeviceState::MONITORING);
+            logger.info("[Control] LOCKOUT cleared by operator.");
         }
     }
 
 private:
-    bool          _hpRunning    = false;
-    unsigned long _lastHpChange = 0;
-    unsigned long _faultStart   = 0;
+    bool          _hpRunning      = false;
+    bool          _heaterRunning  = false;
+    bool          _hpForceOff     = false;
+    bool          _heaterForceOff = false;
+    unsigned long _lastHpChange   = 0;
+    unsigned long _faultStart     = 0;
 
-    // ── Heat Pump hysteresis control ──────────────────────────
-    //    NC relay: COIL_OFF = HP runs, COIL_ON = HP stopped
-    void _evaluateHeatPump(bool tempValid, float currentTemp,
-                           float startTemp, float stopTemp) {
-        bool hpFault    = hpSystem.alarms.highPressure || hpSystem.alarms.lowPressure;
+    // ── HP: Manual ON / Manual OFF / AUTO thermostat ─────────
+    void _driveHP(bool tempValid, float temp, float startTemp, float stopTemp) {
         bool waterSafe  = !hpSystem.alarms.criticalWaterLevel;
-        uint32_t minDelay = configManager.config.relayDelayMs;
+        uint32_t delay  = configManager.config.relayDelayMs;
 
+        // ── MANUAL ON ──
+        if (hpSystem.hpManualOn) {
+            if (!waterSafe) { _stopHP("Low water — manual blocked"); return; }
+            bool delayOk = (millis() - _lastHpChange >= delay);
+            if (_hpRunning || delayOk) {
+                if (!_hpRunning) {
+                    _hpRunning    = true;
+                    _lastHpChange = millis();
+                    logger.info("[Control] HP ON — Manual");
+                    _transition(DeviceState::MANUAL_MODE);
+                }
+                digitalWrite(RELAY_HP_PIN, COIL_OFF);
+                hpSystem.relay = RelayState::ON;
+            } else {
+                // Waiting for anti-short-cycle delay
+                digitalWrite(RELAY_HP_PIN, COIL_ON);
+                hpSystem.relay = RelayState::OFF;
+            }
+            return;
+        }
+
+        // ── MANUAL OFF ──
+        if (_hpForceOff) {
+            digitalWrite(RELAY_HP_PIN, COIL_ON);
+            hpSystem.relay = RelayState::OFF;
+            return;
+        }
+
+        // ── AUTO thermostat ──
+        // HP runs only in the band: startTemp (38°C) ≤ temp < setpoint (40°C)
+        // Below startTemp (e.g. 30°C) → HP is OFF (Heater handles cold water)
+        // Reaches setpoint (40°C)     → HP stops
         if (!_hpRunning) {
-            // ── Currently stopped: start if all conditions met ──
-            if (tempValid && currentTemp < startTemp && !hpFault && waterSafe) {
-                if (millis() - _lastHpChange >= minDelay) {
-                    _hpRunning = true;
-                    digitalWrite(RELAY_HP_PIN, COIL_OFF);   // NC closes → HP runs
+            digitalWrite(RELAY_HP_PIN, COIL_ON);
+            hpSystem.relay = RelayState::OFF;
+            if (tempValid && temp >= startTemp && temp < stopTemp && waterSafe) {
+                if (millis() - _lastHpChange >= delay) {
+                    _hpRunning    = true;
+                    _lastHpChange = millis();
+                    digitalWrite(RELAY_HP_PIN, COIL_OFF);
                     hpSystem.relay = RelayState::ON;
-                    _lastHpChange  = millis();
                     logger.logf(LogLevel::INFO,
-                        "[Control] HP START — Temp=%.1f°C < Start=%.1f°C",
-                        currentTemp, startTemp);
-                    _transitionTo(DeviceState::AUTO_MODE);
+                        "[Control] HP ON — Auto: %.1fC >= Start %.1fC (band: %.1f-%.1fC)",
+                        temp, startTemp, startTemp, stopTemp);
+                    _transition(DeviceState::AUTO_MODE);
                 }
             }
         } else {
-            // ── Currently running: stop if target reached or fault ──
-            bool mustStop = !tempValid
-                         || (currentTemp >= stopTemp)
-                         || hpFault
-                         || !waterSafe;
-
-            if (mustStop) {
-                const char* reason = !tempValid        ? "Sensor lost"
-                                   : hpFault           ? "HP/LP fault"
-                                   : !waterSafe        ? "Low water"
-                                                       : "Setpoint reached";
-                _stopHP(reason);
-                _transitionTo(DeviceState::MONITORING);
+            // HP is running — stop when setpoint reached, sensor lost, or water low
+            bool stop = !tempValid || (temp >= stopTemp) || !waterSafe;
+            if (stop) {
+                _stopHP(!tempValid ? "Sensor lost" : !waterSafe ? "Low water" : "Setpoint reached");
+                _transition(DeviceState::MONITORING);
+            } else {
+                // Keep driving relay every cycle (glitch protection)
+                digitalWrite(RELAY_HP_PIN, COIL_OFF);
+                hpSystem.relay = RelayState::ON;
             }
         }
     }
 
-    // ── Heater manual + temp-guarded auto stop ────────────────
-    //    NC relay: COIL_OFF = heater runs, COIL_ON = heater stopped
-    void _evaluateHeater(bool tempValid, float currentTemp, float setpt) {
-        bool shouldStop = !hpSystem.heaterManualOn
-                       || (tempValid && currentTemp >= setpt);
+    // ── Heater: Manual ON / Manual OFF / AUTO thermostat ─────
+    void _driveHeater(bool tempValid, float temp, float setpt) {
+        // ── MANUAL ON ──
+        if (hpSystem.heaterManualOn) {
+            bool safetyStop = (tempValid && temp >= setpt);
+            if (safetyStop) {
+                // Safety: don't run heater above setpoint even in manual
+                if (_heaterRunning) {
+                    _stopHeater("Safety: temp above setpoint");
+                } else {
+                    digitalWrite(RELAY_HEATER_PIN, COIL_ON);
+                    hpSystem.heaterRelay = RelayState::OFF;
+                }
+            } else {
+                if (!_heaterRunning) {
+                    _heaterRunning = true;
+                    logger.info("[Control] Heater ON — Manual");
+                }
+                digitalWrite(RELAY_HEATER_PIN, COIL_OFF);
+                hpSystem.heaterRelay = RelayState::ON;
+            }
+            return;
+        }
 
-        RelayState target = shouldStop ? RelayState::OFF : RelayState::ON;
+        // ── MANUAL OFF ──
+        if (_heaterForceOff) {
+            if (_heaterRunning) _stopHeater("Manual OFF");
+            else {
+                digitalWrite(RELAY_HEATER_PIN, COIL_ON);
+                hpSystem.heaterRelay = RelayState::OFF;
+            }
+            return;
+        }
 
-        if (hpSystem.heaterRelay != target) {
-            digitalWrite(RELAY_HEATER_PIN, shouldStop ? COIL_ON : COIL_OFF);
-            hpSystem.heaterRelay = target;
-            logger.logf(LogLevel::INFO,
-                "[Control] Heater %s — Temp=%.1f°C Setpt=%.1f°C Manual=%s",
-                shouldStop ? "STOPPED" : "RUNNING",
-                currentTemp, setpt,
-                hpSystem.heaterManualOn ? "ON" : "OFF");
+        // ── AUTO thermostat ──
+        // Run heater when temp < heaterSetpoint; stop when temp >= heaterSetpoint
+        if (!tempValid) {
+            // No sensor — stop heater for safety
+            if (_heaterRunning) _stopHeater("Sensor lost");
+            else {
+                digitalWrite(RELAY_HEATER_PIN, COIL_ON);
+                hpSystem.heaterRelay = RelayState::OFF;
+            }
+            return;
+        }
+
+        if (!_heaterRunning) {
+            // Not running — start if below setpoint
+            if (temp < setpt) {
+                _heaterRunning = true;
+                logger.logf(LogLevel::INFO,
+                    "[Control] Heater ON — Auto: %.1fC < Setpt %.1fC", temp, setpt);
+            }
+            bool run = _heaterRunning;
+            digitalWrite(RELAY_HEATER_PIN, run ? COIL_OFF : COIL_ON);
+            hpSystem.heaterRelay = run ? RelayState::ON : RelayState::OFF;
+        } else {
+            // Running — stop when temp reaches setpoint
+            if (temp >= setpt) {
+                _stopHeater("Setpoint reached");
+            } else {
+                // Keep driving relay every cycle (glitch protection)
+                digitalWrite(RELAY_HEATER_PIN, COIL_OFF);
+                hpSystem.heaterRelay = RelayState::ON;
+            }
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────
     void _stopHP(const char* reason) {
-        if (_hpRunning || hpSystem.relay == RelayState::ON) {
-            digitalWrite(RELAY_HP_PIN, COIL_ON);   // NC opens → HP stops
-            hpSystem.relay = RelayState::OFF;
-            _hpRunning     = false;
-            _lastHpChange  = millis();
-            logger.logf(LogLevel::INFO, "[Control] HP STOP — %s", reason);
-        }
+        digitalWrite(RELAY_HP_PIN, COIL_ON);
+        if (_hpRunning || hpSystem.relay == RelayState::ON)
+            logger.logf(LogLevel::INFO, "[Control] HP OFF — %s", reason);
+        hpSystem.relay = RelayState::OFF;
+        _hpRunning     = false;
+        _lastHpChange  = millis();
     }
 
     void _stopHeater(const char* reason) {
-        if (hpSystem.heaterRelay == RelayState::ON) {
-            digitalWrite(RELAY_HEATER_PIN, COIL_ON);
-            hpSystem.heaterRelay    = RelayState::OFF;
-            hpSystem.heaterManualOn = false;
-            logger.logf(LogLevel::INFO, "[Control] Heater STOP — %s", reason);
-        }
+        digitalWrite(RELAY_HEATER_PIN, COIL_ON);
+        if (_heaterRunning || hpSystem.heaterRelay == RelayState::ON)
+            logger.logf(LogLevel::INFO, "[Control] Heater OFF — %s", reason);
+        hpSystem.heaterRelay = RelayState::OFF;
+        _heaterRunning       = false;
     }
 
-    bool _hasCriticalAlarm() const {
-        return hpSystem.alarms.overvoltage
-            || hpSystem.alarms.overcurrent
-            || hpSystem.alarms.highTemp
-            || hpSystem.alarms.highPressure
-            || hpSystem.alarms.lowPressure
-            || hpSystem.alarms.criticalWaterLevel;
-    }
-
-    void _transitionTo(DeviceState next) {
+    void _transition(DeviceState next) {
         if (hpSystem.state == next) return;
-        logger.logf(LogLevel::INFO, "[Control] State: %s → %s",
+        logger.logf(LogLevel::INFO, "[Control] %s -> %s",
                     stateToStr(hpSystem.state), stateToStr(next));
         if (next == DeviceState::FAULT) _faultStart = millis();
         hpSystem.state = next;
@@ -233,5 +351,3 @@ private:
 };
 
 extern ControlEngine controlEngine;
-
-

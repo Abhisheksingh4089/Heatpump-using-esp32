@@ -19,6 +19,7 @@
 
 #define HP_PIN  25
 #define LP_PIN  14
+// #define PRESSURE_SWITCHES_DISABLED   // Uncomment ONLY if HP/LP switches are not yet wired
 
 class SensorManager {
 public:
@@ -34,6 +35,12 @@ public:
 
     // Called by Scheduler every 1000ms
     void update() {
+#ifdef PRESSURE_SWITCHES_DISABLED
+        // Switches not physically wired yet — report no faults
+        hpSystem.alarms.highPressure = false;
+        hpSystem.alarms.lowPressure  = false;
+        return;
+#endif
         // HIGH means the switch opened (fault), LOW means switch is closed to GND (safe)
         bool hpFault = digitalRead(HP_PIN) == HIGH;
         bool lpFault = digitalRead(LP_PIN) == HIGH;
