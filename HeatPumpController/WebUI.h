@@ -375,10 +375,7 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
   <!-- ============ CONTROL ============ -->
   <div class="card">
     <div class="card-title">Control</div>
-    <div class="status-row">
-      <span class="status-label">Mode</span>
-      <span id="ctrl-mode" class="state-badge state-default">—</span>
-    </div>
+
     <div class="status-row">
       <span class="status-label">Setpoint</span>
       <span id="ctrl-setpoint" style="font-weight:600;">—</span>
@@ -395,14 +392,14 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
     <hr/>
     <div class="card-title" style="margin-top:8px;">Heat Pump</div>
     <div class="btn-row">
-      <button class="btn btn-warning"   onclick="sendControl({hp_manual:true})">HP ON</button>
-      <button class="btn btn-secondary" onclick="sendControl({hp_manual:false})">HP OFF</button>
+      <button class="btn btn-primary"   onclick="sendControl({hp_enabled:true})">HP AUTO</button>
+      <button class="btn btn-secondary" onclick="sendControl({hp_enabled:false})">HP OFF</button>
     </div>
 
     <div class="card-title" style="margin-top:14px;">Heater</div>
     <div class="btn-row">
-      <button class="btn btn-warning"   onclick="sendControl({heater:true})">Heater ON</button>
-      <button class="btn btn-secondary" onclick="sendControl({heater:false})">Heater OFF</button>
+      <button class="btn btn-warning"   onclick="sendControl({heater_enabled:true})">Heater ON</button>
+      <button class="btn btn-secondary" onclick="sendControl({heater_enabled:false})">Heater OFF</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px;align-items:flex-end;">
       <div>
@@ -450,9 +447,7 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
 
     <hr/>
     <div class="btn-row" style="margin-top:4px;">
-      <button class="btn btn-primary"    onclick="sendControl({mode:'auto'})">AUTO</button>
-      <button class="btn btn-secondary"  onclick="sendControl({mode:'manual'})">MANUAL</button>
-      <button class="btn btn-danger"     onclick="sendControl({mode:'reset'})">Reset Lockout</button>
+      <button class="btn btn-danger" onclick="sendControl({mode:'reset'})">Reset Lockout</button>
     </div>
   </div>
 
@@ -724,20 +719,14 @@ const char DASHBOARD_HTML[] PROGMEM = R"=====(
     // Relay HP
     const hpOn = d.relay_hp === 'ON';
     document.getElementById('st-relay').innerHTML =
-      `<span class="dot ${hpOn ? 'dot-green' : 'dot-grey'}"></span>HP: ${d.relay_hp ?? '—'}${d.hp_manual ? ' (Manual)' : ''}`;
+      `<span class="dot ${hpOn ? 'dot-green' : 'dot-grey'}"></span>HP: ${d.relay_hp ?? '—'}`;
     document.getElementById('ctrl-relay-hp').innerHTML =
-      `<span style="color:${hpOn ? 'var(--green)' : 'var(--text-muted)'}">${d.relay_hp ?? '—'}${d.hp_manual ? ' (Manual)' : ''}</span>`;
+      `<span style="color:${hpOn ? 'var(--green)' : 'var(--text-muted)'}">${d.relay_hp ?? '—'}</span>`;
 
     // Relay Heater
     const htOn = d.relay_heater === 'ON';
     document.getElementById('ctrl-relay-heater').innerHTML =
-      `<span style="color:${htOn ? 'var(--yellow)' : 'var(--text-muted)'}">` +
-      `${d.relay_heater ?? '—'}${d.heater_manual ? ' (Manual)' : ''}</span>`;
-
-    // Mode (derived from state)
-    const modeEl = document.getElementById('ctrl-mode');
-    modeEl.textContent = d.state ?? '—';
-    modeEl.className = 'state-badge state-' + (d.state ?? 'default');
+      `<span style="color:${htOn ? 'var(--yellow)' : 'var(--text-muted)'}">${d.relay_heater ?? '—'}</span>`;
     
     // Setpoint display — populate input boxes once
     if (d.setpoint !== undefined) {

@@ -126,9 +126,17 @@ public:
             return;
         }
 
+        // If the server explicitly says success=false (e.g. "Device not found"), 
+        // treat it as "no pending settings" and ignore silently.
+        if (doc["success"].is<bool>() && doc["success"].as<bool>() == false) {
+            return;
+        }
+
         // Must have an 'id' field to acknowledge back
         if (!doc["id"].is<int>()) {
-            logger.error("[Settings] Missing 'id' in response — cannot ACK.");
+            logger.logf(LogLevel::ERROR,
+                "[Settings] Missing 'id' in response. Body: %.60s",
+                responseBody.c_str());
             settingsPollStatus.applyFailCount++;
             return;
         }
@@ -303,12 +311,15 @@ private:
             c.heaterHysteresis = v;
         }
 
-        // ── Manual Override Flags ─────────────────────────────
-        // NOTE: hp_manually_on / heater_manually_on are intentionally
-        // NOT handled here. Relay control must only come from the local
-        // dashboard (/api/control). A remote settings push with
-        // hp_manually_on=0 was silently killing the relay every poll cycle.
-        // Remote settings only control config parameters (setpoints etc.).
+        // ── Device Enable Toggles (from remote server) ────────
+        if (doc.containsKey("hp_manually_on")) {
+            bool enabled = getBool("hp_manually_on", hpSystem.hpEnabled);
+            controlEngine.setHPEnabled(enabled, "Cloud");
+        }
+        if (doc.containsKey("heater_manually_on")) {
+            bool enabled = getBool("heater_manually_on", hpSystem.heaterEnabled);
+            controlEngine.setHeaterEnabled(enabled, "Cloud");
+        }
 
         // ── Control Sensor Selection ──────────────────────────
         if (doc.containsKey("control_sensor_idx")) {

@@ -4,6 +4,7 @@
 #include <WiFiManager.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+#include <esp_mac.h>
 #include "SystemData.h"
 #include "Logger.h"
 
@@ -35,14 +36,16 @@ public:
     void begin() {
         logger.info("[Net] Initialising HPNetworkManager...");
 
-        // Build Device ID and MAC from WiFi
+        // Read true factory MAC directly from eFuse hardware (no WiFi init needed)
         uint8_t mac[6];
-        WiFi.macAddress(mac);
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
         snprintf(hpSystem.device.macAddress, sizeof(hpSystem.device.macAddress),
                  "%02X:%02X:%02X:%02X:%02X:%02X",
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+                 
         snprintf(hpSystem.device.deviceId, sizeof(hpSystem.device.deviceId),
-                 "HP-%02X%02X%02X", mac[3], mac[4], mac[5]);
+                 "%02X%02X%02X", mac[3], mac[4], mac[5]);
 
         logger.logf(LogLevel::INFO, "[Net] Device ID: %s  MAC: %s",
                     hpSystem.device.deviceId, hpSystem.device.macAddress);

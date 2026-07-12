@@ -133,8 +133,9 @@ private:
         // No sensor deps — always safe.
         JsonObject sys = doc["system"].to<JsonObject>();
         bool relayOn = (hpSystem.relay == RelayState::ON);
+        bool heaterRelayOn = (hpSystem.heaterRelay == RelayState::ON);
         sys["heatPumpRunning"]  = relayOn;
-        sys["heaterOn"]         = relayOn;   // dedicated heater on/off column for DB
+        sys["heaterOn"]         = heaterRelayOn;   // Fixed: now reading actual heater relay
         sys["operatingMode"]    = relayOn ? "HEATING" : "STANDBY";
         sys["relayOn"]          = relayOn;
         sys["deviceState"]      = stateToStr(hpSystem.state);

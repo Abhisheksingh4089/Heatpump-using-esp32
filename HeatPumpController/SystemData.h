@@ -19,8 +19,6 @@ enum class DeviceState : uint8_t {
     SYNC_TIME,
     READY,
     MONITORING,
-    AUTO_MODE,
-    MANUAL_MODE,
     FAULT,
     LOCKOUT,
     OTA_UPDATE,
@@ -36,8 +34,6 @@ inline const char* stateToStr(DeviceState s) {
         case DeviceState::SYNC_TIME:            return "SYNC_TIME";
         case DeviceState::READY:                return "READY";
         case DeviceState::MONITORING:           return "MONITORING";
-        case DeviceState::AUTO_MODE:            return "AUTO_MODE";
-        case DeviceState::MANUAL_MODE:          return "MANUAL_MODE";
         case DeviceState::FAULT:                return "FAULT";
         case DeviceState::LOCKOUT:              return "LOCKOUT";
         case DeviceState::OTA_UPDATE:           return "OTA_UPDATE";
@@ -175,8 +171,8 @@ struct SystemData {
     CloudSyncStatus cloud;
     RelayState  relay        = RelayState::OFF;   // Heat Pump compressor relay (GPIO 18)
     RelayState  heaterRelay  = RelayState::OFF;   // Heater relay (GPIO 19)
-    bool        heaterManualOn = false;            // true = user manually enabled heater
-    bool        hpManualOn     = false;            // true = user manually enabled heat pump
+    bool        heaterEnabled  = false;            // true = enabled (runs thermostat), false = forced off
+    bool        hpEnabled      = false;            // true = enabled (runs thermostat), false = forced off
 
     PZEMData      pzem[3];
     TempSensor    temps[8];

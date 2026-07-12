@@ -8,7 +8,7 @@
 // ============================================================
 
 #define LOG_MAX_ENTRIES  100
-#define LOG_MSG_LEN       80
+#define LOG_MSG_LEN       128
 
 enum class LogLevel : uint8_t { INFO = 0, WARNING, ERROR, CRITICAL };
 

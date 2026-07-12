@@ -129,17 +129,11 @@ private:
                 _server->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
                 return;
             }
-            if (doc["mode"].is<const char*>()) {
-                String mode = doc["mode"].as<String>();
-                if (mode == "manual")     controlEngine.setManualMode(true,  "WebDash");
-                else if (mode == "auto")  controlEngine.setManualMode(false, "WebDash");
-                else if (mode == "reset") controlEngine.clearLockout();
+            if (doc["heater_enabled"].is<bool>()) {
+                controlEngine.setHeaterEnabled(doc["heater_enabled"].as<bool>(), "WebDash");
             }
-            if (doc["heater"].is<bool>()) {
-                controlEngine.setHeaterManual(doc["heater"].as<bool>(), "WebDash");
-            }
-            if (doc["hp_manual"].is<bool>()) {
-                controlEngine.setHPManual(doc["hp_manual"].as<bool>(), "WebDash");
+            if (doc["hp_enabled"].is<bool>()) {
+                controlEngine.setHPEnabled(doc["hp_enabled"].as<bool>(), "WebDash");
             }
             logger.info("[Web] Control command received.");
             _server->send(200, "application/json", "{\"status\":\"ok\"}");
@@ -168,6 +162,11 @@ private:
             if (doc["control_sensor_idx"].is<int>()) c.controlSensorIdx = (uint8_t)constrain((int)doc["control_sensor_idx"], 0, 7);
             if (doc["api_url"].is<const char*>())
                 strlcpy(c.apiUrl, doc["api_url"], sizeof(c.apiUrl));
+            
+            // Implicitly resume AUTO mode if the user updates setpoints
+            controlEngine.setHPEnabled(true, "WebConfig");
+            controlEngine.setHeaterEnabled(true, "WebConfig");
+
             // Water tank parameters
             if (doc["empty_dist_cm"].is<float>())       c.emptyDistanceCm      = doc["empty_dist_cm"];
             if (doc["full_dist_cm"].is<float>())        c.fullDistanceCm       = doc["full_dist_cm"];
@@ -256,10 +255,10 @@ private:
         doc["uptime"]   = hpSystem.health.uptime;
         doc["device_id"]= hpSystem.device.deviceId;
         doc["firmware"] = hpSystem.device.firmwareVersion;
-        doc["relay_hp"]       = (hpSystem.relay       == RelayState::ON) ? "ON" : "OFF";
-        doc["relay_heater"]   = (hpSystem.heaterRelay  == RelayState::ON) ? "ON" : "OFF";
-        doc["heater_manual"]  = hpSystem.heaterManualOn;
-        doc["hp_manual"]      = hpSystem.hpManualOn;
+        doc["relay_hp"]        = (hpSystem.relay       == RelayState::ON) ? "ON" : "OFF";
+        doc["relay_heater"]    = (hpSystem.heaterRelay == RelayState::ON) ? "ON" : "OFF";
+        doc["heater_enabled"]  = hpSystem.heaterEnabled;
+        doc["hp_enabled"]      = hpSystem.hpEnabled;
         doc["setpoint"]            = configManager.config.tempSetpoint;
         doc["hysteresis"]           = configManager.config.tempHysteresis;
         doc["heater_setpoint"]      = configManager.config.heaterSetpoint;

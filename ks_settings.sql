@@ -117,12 +117,11 @@ INSERT INTO `ks_settings` (
   `feedback`,
   `created_at`,
   `updated_at`
-) VALUES (
   1,
-  'HP-AABBCC',   -- replace with actual device MAC-based ID
-  55.00,         -- tempSetpoint
-  5.00,          -- tempHysteresis
-  45.00,         -- heaterSetpoint
+  'HP-E1FC3F',   -- Real ESP32 device ID from serial monitor
+  40.00,         -- tempSetpoint
+  2.00,          -- tempHysteresis
+  40.00,         -- heaterSetpoint
   2.00,          -- heaterHysteresis
   0,             -- heater_manually_on = false
   0,             -- hp_manually_on     = false
@@ -137,7 +136,7 @@ INSERT INTO `ks_settings` (
   15.00,         -- water_shutoff_pct
   25.00,         -- water_low_alarm_pct
   5000,          -- cloud_interval_ms
-  1,             -- status = APPLIED (seed row — not a real pending command)
+  0,             -- status = 0 (PENDING) so the ESP32 will immediately download and apply it!
   'Seed row — defaults applied.',
   NOW(),
   NOW()
